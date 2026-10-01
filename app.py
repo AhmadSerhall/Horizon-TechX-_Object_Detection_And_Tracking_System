@@ -1,4 +1,6 @@
-"""Phase 2 video-input demonstration for the project."""
+"""Phase 3 detection demonstration for the project."""
+
+from time import perf_counter
 
 import cv2
 import numpy as np
@@ -6,7 +8,9 @@ import torch
 import torchvision
 from ultralytics import YOLO
 
-from config import DEFAULT_VIDEO_SOURCE
+from config import DEFAULT_VIDEO_SOURCE, YOLO_MODEL_NAME
+from src.detection import DetectionError, ModelLoadError, YOLODetector
+from src.utils import draw_detections
 from src.video import VideoCapture, VideoMetadata, VideoSourceError
 
 
@@ -37,12 +41,18 @@ def print_video_info(video: VideoCapture, metadata: VideoMetadata) -> None:
 
 
 def run_video_pipeline() -> int:
-    """Display unmodified frames from the configured source until the user exits."""
+    """Run frame-by-frame detection and display annotated output until exit."""
     video = VideoCapture(DEFAULT_VIDEO_SOURCE)
     current_frame: np.ndarray | None = None
+    display_frame: np.ndarray | None = None
     paused = False
 
     try:
+        print(f"Loading YOLO model: {YOLO_MODEL_NAME}")
+        detector = YOLODetector()
+        print("Model loaded successfully")
+        print(f"Inference device: {detector.device.upper()}")
+
         video.open()
         print_video_info(video, video.get_metadata())
         print("Controls: SPACE = pause/resume, Q or ESC = quit")
@@ -53,9 +63,13 @@ def run_video_pipeline() -> int:
                 if not success:
                     print("Video source has no more frames.")
                     break
+                inference_start = perf_counter()
+                detections = detector.detect(current_frame)
+                inference_fps = 1 / (perf_counter() - inference_start)
+                display_frame = draw_detections(current_frame, detections, inference_fps)
 
-            if current_frame is not None:
-                cv2.imshow(WINDOW_TITLE, current_frame)
+            if display_frame is not None:
+                cv2.imshow(WINDOW_TITLE, display_frame)
 
             key = cv2.waitKey(30 if paused else 1) & 0xFF
             if key in (ord("q"), ord("Q"), 27):
@@ -63,8 +77,8 @@ def run_video_pipeline() -> int:
             if key == ord(" "):
                 paused = not paused
                 print("Video paused." if paused else "Video resumed.")
-    except VideoSourceError as error:
-        print(f"Video input error: {error}")
+    except (VideoSourceError, ModelLoadError, DetectionError) as error:
+        print(f"Application error: {error}")
         return 1
     except cv2.error as error:
         print(f"OpenCV display error: {error}")
