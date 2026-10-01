@@ -1,0 +1,33 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment and tooling
+.env
+.env.*
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Model weights and generated media
+*.pt
+*.onnx
+*.engine
+output/*
+!output/.gitkeep
+
+# Runtime and temporary files
+*.log
+*.tmp
+*.temp
+.cache/
