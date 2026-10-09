@@ -10,8 +10,8 @@ A Python computer-vision project for real-time object detection and persistent m
 - OpenCV
 - YOLO (Ultralytics)
 - PyTorch
-- Deep SORT family tracking (Deep OC-SORT)
+- ByteTrack (Ultralytics)
 
 ## Current status
 
-Initial project setup.
+YOLO11n detection and Ultralytics ByteTrack persistent tracking IDs are implemented.

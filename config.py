@@ -15,7 +15,13 @@ IOU_THRESHOLD = 0.45
 
 # 0 selects the default webcam. A path or URL can be supplied later.
 DEFAULT_VIDEO_SOURCE: int | str = 0
-TRACKING_ENABLED = True
 
-# Deep OC-SORT is included in current Ultralytics releases and will be wired in later.
-TRACKER_NAME = "deepocsort.yaml"
+# ByteTrack is provided by the installed Ultralytics package.
+TRACKING_ENABLED = True
+TRACKER_TYPE = "bytetrack"
+TRACK_HIGH_THRESH = 0.50
+TRACK_LOW_THRESH = 0.10
+NEW_TRACK_THRESH = 0.50
+TRACK_BUFFER = 30
+TRACK_MATCH_THRESH = 0.80
+TRACK_FUSE_SCORE = True

@@ -1,4 +1,4 @@
-"""Phase 3 detection demonstration for the project."""
+"""Phase 4 object detection and tracking demonstration for the project."""
 
 from time import perf_counter
 
@@ -8,9 +8,10 @@ import torch
 import torchvision
 from ultralytics import YOLO
 
-from config import DEFAULT_VIDEO_SOURCE, YOLO_MODEL_NAME
+from config import DEFAULT_VIDEO_SOURCE, TRACKER_TYPE, TRACKING_ENABLED, YOLO_MODEL_NAME
 from src.detection import DetectionError, ModelLoadError, YOLODetector
-from src.utils import draw_detections
+from src.tracking import ObjectTracker, TrackerError
+from src.utils import draw_detections, draw_tracked_objects
 from src.video import VideoCapture, VideoMetadata, VideoSourceError
 
 
@@ -40,6 +41,14 @@ def print_video_info(video: VideoCapture, metadata: VideoMetadata) -> None:
         print(f"Duration: {metadata.duration_seconds:.2f} seconds")
 
 
+def is_window_open() -> bool:
+    """Return whether the OpenCV display window is still visible."""
+    try:
+        return cv2.getWindowProperty(WINDOW_TITLE, cv2.WND_PROP_VISIBLE) >= 1
+    except cv2.error:
+        return False
+
+
 def run_video_pipeline() -> int:
     """Run frame-by-frame detection and display annotated output until exit."""
     video = VideoCapture(DEFAULT_VIDEO_SOURCE)
@@ -52,6 +61,11 @@ def run_video_pipeline() -> int:
         detector = YOLODetector()
         print("Model loaded successfully")
         print(f"Inference device: {detector.device.upper()}")
+        tracker = ObjectTracker() if TRACKING_ENABLED else None
+        if tracker is not None:
+            print(f"Tracking enabled: {TRACKER_TYPE}")
+        else:
+            print("Tracking disabled: displaying detections only")
 
         video.open()
         print_video_info(video, video.get_metadata())
@@ -65,8 +79,14 @@ def run_video_pipeline() -> int:
                     break
                 inference_start = perf_counter()
                 detections = detector.detect(current_frame)
-                inference_fps = 1 / (perf_counter() - inference_start)
-                display_frame = draw_detections(current_frame, detections, inference_fps)
+                inference_fps = 1 / max(perf_counter() - inference_start, 1e-9)
+                if tracker is not None:
+                    tracked_objects = tracker.update(current_frame, detections)
+                    display_frame = draw_tracked_objects(
+                        current_frame, tracked_objects, inference_fps
+                    )
+                else:
+                    display_frame = draw_detections(current_frame, detections, inference_fps)
 
             if display_frame is not None:
                 cv2.imshow(WINDOW_TITLE, display_frame)
@@ -74,12 +94,18 @@ def run_video_pipeline() -> int:
             key = cv2.waitKey(30 if paused else 1) & 0xFF
             if key in (ord("q"), ord("Q"), 27):
                 break
+            if not is_window_open():
+                print("Display window closed.")
+                break
             if key == ord(" "):
                 paused = not paused
                 print("Video paused." if paused else "Video resumed.")
-    except (VideoSourceError, ModelLoadError, DetectionError) as error:
+    except (VideoSourceError, ModelLoadError, DetectionError, TrackerError) as error:
         print(f"Application error: {error}")
         return 1
+    except KeyboardInterrupt:
+        print("Application interrupted.")
+        return 0
     except cv2.error as error:
         print(f"OpenCV display error: {error}")
         return 1
@@ -94,7 +120,7 @@ def run_video_pipeline() -> int:
 
 
 def main() -> int:
-    """Run the environment checks and Phase 2 video pipeline."""
+    """Run the environment checks and Phase 4 video pipeline."""
     print_environment_info()
     return run_video_pipeline()
 

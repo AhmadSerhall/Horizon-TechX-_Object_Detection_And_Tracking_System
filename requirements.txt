@@ -6,4 +6,7 @@ numpy>=1.26.0
 torch==2.12.0
 torchvision==0.27.0
 
-# Tracking is supplied by the maintained Deep OC-SORT integration in Ultralytics.
+# Ultralytics ByteTrack uses this linear-assignment solver for track matching.
+lap>=0.5.12
+
+# Tracking is supplied by the maintained ByteTrack integration in Ultralytics.

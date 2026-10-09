@@ -1,5 +1,5 @@
 """Shared utilities."""
 
-from .visualization import draw_detections
+from .visualization import draw_detections, draw_tracked_objects
 
-__all__ = ["draw_detections"]
+__all__ = ["draw_detections", "draw_tracked_objects"]
