@@ -1,6 +1,7 @@
 """Tracking tests that use synthetic detections instead of a camera or YOLO model."""
 
 import unittest
+from unittest.mock import MagicMock
 
 import numpy as np
 
@@ -52,6 +53,14 @@ class ObjectTrackerTests(unittest.TestCase):
         tracker = ObjectTracker()
 
         self.assertEqual(tracker.update(self.frame, []), [])
+
+    def test_reset_discards_the_underlying_tracker_state(self) -> None:
+        tracker = ObjectTracker()
+        tracker._tracker.reset = MagicMock()
+
+        tracker.reset()
+
+        tracker._tracker.reset.assert_called_once()
 
 
 if __name__ == "__main__":

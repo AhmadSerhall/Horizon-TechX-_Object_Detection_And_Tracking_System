@@ -12,6 +12,9 @@ OUTPUT_DIR = PROJECT_ROOT / "output"
 YOLO_MODEL_NAME = "yolo11n.pt"
 CONFIDENCE_THRESHOLD = 0.50
 IOU_THRESHOLD = 0.45
+CONFIDENCE_STEP = 0.05
+STATISTICS_MAX_CLASSES = 5
+DEFAULT_WEBCAM_EXPORT_FPS = 30.0
 
 # 0 selects the default webcam. A path or URL can be supplied later.
 DEFAULT_VIDEO_SOURCE: int | str = "input/final result.mp4"

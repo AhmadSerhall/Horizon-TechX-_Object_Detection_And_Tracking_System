@@ -37,6 +37,9 @@ class FakeDetector:
 
     device = "cpu"
 
+    def __init__(self, **_: object) -> None:
+        self.confidence_threshold = 0.5
+
     def detect(self, frame: np.ndarray) -> list[Detection]:
         return [Detection(1, 1, 10, 10, 0.9, 0, "person")]
 
@@ -47,6 +50,7 @@ class TrackingToggleTests(unittest.TestCase):
     @patch.object(app, "print_video_info")
     @patch.object(app, "draw_tracked_objects")
     @patch.object(app, "draw_detections", return_value=np.zeros((20, 20, 3), dtype=np.uint8))
+    @patch.object(app, "draw_statistics_panel", return_value=np.zeros((20, 20, 3), dtype=np.uint8))
     @patch.object(app, "get_display_size", return_value=(20, 20))
     @patch.object(app, "YOLODetector", FakeDetector)
     @patch.object(app, "VideoCapture", FakeVideoCapture)
@@ -56,6 +60,7 @@ class TrackingToggleTests(unittest.TestCase):
         self,
         mock_cv2: MagicMock,
         mock_get_display_size: MagicMock,
+        mock_draw_statistics_panel: MagicMock,
         mock_draw_detections: MagicMock,
         mock_draw_tracked_objects: MagicMock,
         mock_print_video_info: MagicMock,

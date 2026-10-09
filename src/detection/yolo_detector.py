@@ -42,6 +42,8 @@ class YOLODetector:
         confidence_threshold: float = CONFIDENCE_THRESHOLD,
         iou_threshold: float = IOU_THRESHOLD,
     ) -> None:
+        if not 0.0 <= confidence_threshold <= 1.0:
+            raise ValueError("Confidence threshold must be between 0 and 1.")
         self.model_name = model_name
         self.confidence_threshold = confidence_threshold
         self.iou_threshold = iou_threshold
@@ -73,6 +75,12 @@ class YOLODetector:
             return detections
         except Exception as error:
             raise DetectionError(f"YOLO inference failed: {error}") from error
+
+    def set_confidence_threshold(self, confidence_threshold: float) -> None:
+        """Update the threshold used by subsequent inferences without reloading YOLO."""
+        if not 0.0 <= confidence_threshold <= 1.0:
+            raise ValueError("Confidence threshold must be between 0 and 1.")
+        self.confidence_threshold = confidence_threshold
 
     @staticmethod
     def parse_result(result: Any) -> list[Detection]:

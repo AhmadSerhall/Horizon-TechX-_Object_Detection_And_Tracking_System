@@ -5,6 +5,8 @@ import unittest
 import numpy as np
 
 from src.video import PlaybackTiming, calculate_letterbox_layout, letterbox_frame
+from src.utils.statistics import FrameStatistics
+from src.utils.visualization import draw_help_overlay, draw_statistics_panel
 
 
 class DisplayAndPlaybackTests(unittest.TestCase):
@@ -40,6 +42,18 @@ class DisplayAndPlaybackTests(unittest.TestCase):
         self.assertEqual(timing.wait_delay_ms(0.01), 30)
         self.assertEqual(timing.wait_delay_ms(0.05), 1)
         self.assertEqual(PlaybackTiming(0).wait_delay_ms(0.01), 1)
+
+    def test_statistics_and_help_overlays_keep_frame_dimensions(self) -> None:
+        frame = np.zeros((120, 240, 3), dtype=np.uint8)
+        statistics = FrameStatistics(24.6, True, 0.5, 2, {"person": 2}, 2)
+
+        statistics_frame = draw_statistics_panel(frame, statistics)
+        help_frame = draw_help_overlay(statistics_frame)
+
+        self.assertEqual(statistics_frame.shape, frame.shape)
+        self.assertEqual(help_frame.shape, frame.shape)
+        self.assertTrue(np.any(statistics_frame != 0))
+        self.assertTrue(np.any(help_frame != 0))
 
 
 if __name__ == "__main__":

@@ -110,3 +110,7 @@ class ObjectTracker:
                 )
             )
         return tracked_objects
+
+    def reset(self) -> None:
+        """Discard tracker state so future tracks begin a new ID sequence."""
+        self._tracker.reset()
