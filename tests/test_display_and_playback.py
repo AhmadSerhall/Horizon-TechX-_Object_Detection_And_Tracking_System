@@ -6,7 +6,12 @@ import numpy as np
 
 from src.video import PlaybackTiming, calculate_letterbox_layout, letterbox_frame
 from src.utils.statistics import FrameStatistics
-from src.utils.visualization import draw_help_overlay, draw_statistics_panel
+from src.utils.visualization import (
+    calculate_statistics_panel_layout,
+    draw_display_statistics_panel,
+    draw_help_overlay,
+    draw_statistics_panel,
+)
 
 
 class DisplayAndPlaybackTests(unittest.TestCase):
@@ -54,6 +59,45 @@ class DisplayAndPlaybackTests(unittest.TestCase):
         self.assertEqual(help_frame.shape, frame.shape)
         self.assertTrue(np.any(statistics_frame != 0))
         self.assertTrue(np.any(help_frame != 0))
+
+    def test_portrait_display_places_panel_in_left_letterbox(self) -> None:
+        statistics = FrameStatistics(24.6, True, 0.5, 3, {"person": 2, "car": 1}, 3)
+        bounds, _, _, _, _ = calculate_statistics_panel_layout(
+            statistics,
+            (1600, 900),
+            (465, 0, 670, 900),
+        )
+
+        self.assertEqual(bounds.placement, "left_letterbox")
+        self.assertGreaterEqual(bounds.x, 0)
+        self.assertLessEqual(bounds.right, 465)
+        self.assertGreaterEqual(bounds.y, 0)
+        self.assertLessEqual(bounds.bottom, 900)
+
+    def test_landscape_display_places_panel_inside_video_bounds(self) -> None:
+        statistics = FrameStatistics(24.6, False, 0.5, 1, {"very long class name": 1}, None)
+        bounds, _, _, _, _ = calculate_statistics_panel_layout(
+            statistics,
+            (1000, 1000),
+            (0, 219, 1000, 562),
+        )
+
+        self.assertEqual(bounds.placement, "inside_video")
+        self.assertGreaterEqual(bounds.x, 0)
+        self.assertGreaterEqual(bounds.y, 219)
+        self.assertLessEqual(bounds.right, 1000)
+        self.assertLessEqual(bounds.bottom, 781)
+
+    def test_small_display_panel_stays_within_canvas(self) -> None:
+        statistics = FrameStatistics(12.0, True, 0.5, 1, {"person": 1}, 1)
+        canvas = np.zeros((130, 200, 3), dtype=np.uint8)
+        drawn, bounds = draw_display_statistics_panel(canvas, statistics, (0, 10, 200, 110))
+
+        self.assertEqual(drawn.shape, canvas.shape)
+        self.assertGreaterEqual(bounds.x, 0)
+        self.assertGreaterEqual(bounds.y, 0)
+        self.assertLessEqual(bounds.right, 200)
+        self.assertLessEqual(bounds.bottom, 130)
 
 
 if __name__ == "__main__":

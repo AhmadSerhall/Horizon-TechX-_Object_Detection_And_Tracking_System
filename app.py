@@ -26,6 +26,7 @@ from src.tracking import ObjectTracker, TrackerError
 from src.utils import (
     calculate_frame_statistics,
     draw_detections,
+    draw_display_statistics_panel,
     draw_help_overlay,
     draw_statistics_panel,
     draw_tracked_objects,
@@ -125,8 +126,8 @@ def run_video_pipeline(
 
     video = VideoCapture(source)
     writer = ProcessedVideoWriter(OUTPUT_DIR) if save_output else None
-    base_display_frame: np.ndarray | None = None
-    display_frame: np.ndarray | None = None
+    annotated_frame: np.ndarray | None = None
+    statistics = None
     paused = False
     show_help = False
     wait_delay_ms = 1
@@ -175,20 +176,15 @@ def run_video_pipeline(
                     tracking_enabled=tracker is not None,
                     confidence_threshold=detector.confidence_threshold,
                 )
-                base_display_frame = draw_statistics_panel(
+                export_frame = draw_statistics_panel(
                     annotated_frame, statistics, STATISTICS_MAX_CLASSES
-                )
-                display_frame = (
-                    draw_help_overlay(base_display_frame)
-                    if show_help
-                    else base_display_frame
                 )
 
                 if writer is not None:
                     if not writer.is_opened:
-                        output_path = writer.start(display_frame, export_fps(video, metadata))
+                        output_path = writer.start(export_frame, export_fps(video, metadata))
                         print(f"Saving annotated video to: {output_path}")
-                    writer.write(display_frame)
+                    writer.write(export_frame)
 
                 wait_delay_ms = (
                     playback_timing.wait_delay_ms(processing_seconds)
@@ -196,11 +192,24 @@ def run_video_pipeline(
                     else 1
                 )
 
-            if display_frame is not None:
-                frame_size = (display_frame.shape[1], display_frame.shape[0])
+            if annotated_frame is not None and statistics is not None:
+                frame_size = (annotated_frame.shape[1], annotated_frame.shape[0])
                 viewport_size = get_display_size(frame_size)
-                output_frame, _ = letterbox_frame(display_frame, viewport_size)
-                cv2.imshow(WINDOW_TITLE, output_frame)
+                output_frame, letterbox_layout = letterbox_frame(annotated_frame, viewport_size)
+                display_frame, panel_bounds = draw_display_statistics_panel(
+                    output_frame,
+                    statistics,
+                    (
+                        letterbox_layout.offset_x,
+                        letterbox_layout.offset_y,
+                        letterbox_layout.image_width,
+                        letterbox_layout.image_height,
+                    ),
+                    STATISTICS_MAX_CLASSES,
+                )
+                if show_help:
+                    display_frame = draw_help_overlay(display_frame, panel_bounds)
+                cv2.imshow(WINDOW_TITLE, display_frame)
 
             key = cv2.waitKey(30 if paused else wait_delay_ms) & 0xFF
             if key in (ord("q"), ord("Q"), 27):
@@ -231,12 +240,6 @@ def run_video_pipeline(
                 print(f"Confidence threshold: {detector.confidence_threshold:.2f}")
             elif key in (ord("h"), ord("H")):
                 show_help = not show_help
-                if base_display_frame is not None:
-                    display_frame = (
-                        draw_help_overlay(base_display_frame)
-                        if show_help
-                        else base_display_frame.copy()
-                    )
                 print("Keyboard help shown." if show_help else "Keyboard help hidden.")
     except (
         VideoSourceError,

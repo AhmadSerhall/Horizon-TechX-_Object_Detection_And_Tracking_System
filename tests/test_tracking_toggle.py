@@ -7,6 +7,7 @@ import numpy as np
 
 import app
 from src.detection import Detection
+from src.utils import PanelBounds
 from src.video import VideoMetadata
 
 
@@ -51,6 +52,11 @@ class TrackingToggleTests(unittest.TestCase):
     @patch.object(app, "draw_tracked_objects")
     @patch.object(app, "draw_detections", return_value=np.zeros((20, 20, 3), dtype=np.uint8))
     @patch.object(app, "draw_statistics_panel", return_value=np.zeros((20, 20, 3), dtype=np.uint8))
+    @patch.object(
+        app,
+        "draw_display_statistics_panel",
+        return_value=(np.zeros((20, 20, 3), dtype=np.uint8), PanelBounds(0, 0, 1, 1, "test")),
+    )
     @patch.object(app, "get_display_size", return_value=(20, 20))
     @patch.object(app, "YOLODetector", FakeDetector)
     @patch.object(app, "VideoCapture", FakeVideoCapture)
@@ -60,6 +66,7 @@ class TrackingToggleTests(unittest.TestCase):
         self,
         mock_cv2: MagicMock,
         mock_get_display_size: MagicMock,
+        mock_draw_display_statistics_panel: MagicMock,
         mock_draw_statistics_panel: MagicMock,
         mock_draw_detections: MagicMock,
         mock_draw_tracked_objects: MagicMock,

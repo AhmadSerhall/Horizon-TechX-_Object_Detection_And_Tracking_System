@@ -17,7 +17,7 @@ STATISTICS_MAX_CLASSES = 5
 DEFAULT_WEBCAM_EXPORT_FPS = 30.0
 
 # 0 selects the default webcam. A path or URL can be supplied later.
-DEFAULT_VIDEO_SOURCE: int | str = "input/final result.mp4"
+DEFAULT_VIDEO_SOURCE: int | str = "input/batman.mp4"
 
 # ByteTrack is provided by the installed Ultralytics package.
 TRACKING_ENABLED = True
