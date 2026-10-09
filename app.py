@@ -1,4 +1,4 @@
-"""Phase 4 object detection and tracking demonstration for the project."""
+"""Phase 5 object detection, tracking, and playback demonstration."""
 
 from time import perf_counter
 
@@ -12,7 +12,13 @@ from config import DEFAULT_VIDEO_SOURCE, TRACKER_TYPE, TRACKING_ENABLED, YOLO_MO
 from src.detection import DetectionError, ModelLoadError, YOLODetector
 from src.tracking import ObjectTracker, TrackerError
 from src.utils import draw_detections, draw_tracked_objects
-from src.video import VideoCapture, VideoMetadata, VideoSourceError
+from src.video import (
+    PlaybackTiming,
+    VideoCapture,
+    VideoMetadata,
+    VideoSourceError,
+    letterbox_frame,
+)
 
 
 WINDOW_TITLE = "Object Detection & Tracking System"
@@ -49,12 +55,24 @@ def is_window_open() -> bool:
         return False
 
 
+def get_display_size(fallback_size: tuple[int, int]) -> tuple[int, int]:
+    """Read the current OpenCV image area, with a safe source-size fallback."""
+    try:
+        _, _, width, height = cv2.getWindowImageRect(WINDOW_TITLE)
+        if width > 0 and height > 0:
+            return width, height
+    except cv2.error:
+        pass
+    return fallback_size
+
+
 def run_video_pipeline() -> int:
     """Run frame-by-frame detection and display annotated output until exit."""
     video = VideoCapture(DEFAULT_VIDEO_SOURCE)
     current_frame: np.ndarray | None = None
     display_frame: np.ndarray | None = None
     paused = False
+    wait_delay_ms = 1
 
     try:
         print(f"Loading YOLO model: {YOLO_MODEL_NAME}")
@@ -68,7 +86,21 @@ def run_video_pipeline() -> int:
             print("Tracking disabled: displaying detections only")
 
         video.open()
-        print_video_info(video, video.get_metadata())
+        metadata = video.get_metadata()
+        print_video_info(video, metadata)
+        playback_timing = None if video.is_webcam else PlaybackTiming(metadata.fps)
+        if playback_timing is not None:
+            print(
+                "Video-file playback uses the source FPS as an upper limit; "
+                "slower processing plays at the processing rate."
+            )
+
+        cv2.namedWindow(WINDOW_TITLE, cv2.WINDOW_NORMAL | cv2.WINDOW_FREERATIO)
+        cv2.resizeWindow(
+            WINDOW_TITLE,
+            min(metadata.width, 960),
+            min(metadata.height, 720),
+        )
         print("Controls: SPACE = pause/resume, Q or ESC = quit")
 
         while True:
@@ -77,21 +109,31 @@ def run_video_pipeline() -> int:
                 if not success:
                     print("Video source has no more frames.")
                     break
-                inference_start = perf_counter()
+                processing_start = perf_counter()
                 detections = detector.detect(current_frame)
-                inference_fps = 1 / max(perf_counter() - inference_start, 1e-9)
                 if tracker is not None:
                     tracked_objects = tracker.update(current_frame, detections)
+                    processing_seconds = perf_counter() - processing_start
+                    processing_fps = 1 / max(processing_seconds, 1e-9)
                     display_frame = draw_tracked_objects(
-                        current_frame, tracked_objects, inference_fps
+                        current_frame, tracked_objects, processing_fps
                     )
                 else:
-                    display_frame = draw_detections(current_frame, detections, inference_fps)
+                    processing_seconds = perf_counter() - processing_start
+                    processing_fps = 1 / max(processing_seconds, 1e-9)
+                    display_frame = draw_detections(current_frame, detections, processing_fps)
+                if playback_timing is not None:
+                    wait_delay_ms = playback_timing.wait_delay_ms(processing_seconds)
+                else:
+                    wait_delay_ms = 1
 
             if display_frame is not None:
-                cv2.imshow(WINDOW_TITLE, display_frame)
+                frame_size = (display_frame.shape[1], display_frame.shape[0])
+                viewport_size = get_display_size(frame_size)
+                output_frame, _ = letterbox_frame(display_frame, viewport_size)
+                cv2.imshow(WINDOW_TITLE, output_frame)
 
-            key = cv2.waitKey(30 if paused else 1) & 0xFF
+            key = cv2.waitKey(30 if paused else wait_delay_ms) & 0xFF
             if key in (ord("q"), ord("Q"), 27):
                 break
             if not is_window_open():
@@ -120,7 +162,7 @@ def run_video_pipeline() -> int:
 
 
 def main() -> int:
-    """Run the environment checks and Phase 4 video pipeline."""
+    """Run the environment checks and Phase 5 video pipeline."""
     print_environment_info()
     return run_video_pipeline()
 

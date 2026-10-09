@@ -14,7 +14,7 @@ CONFIDENCE_THRESHOLD = 0.50
 IOU_THRESHOLD = 0.45
 
 # 0 selects the default webcam. A path or URL can be supplied later.
-DEFAULT_VIDEO_SOURCE: int | str = 0
+DEFAULT_VIDEO_SOURCE: int | str = "input/final result.mp4"
 
 # ByteTrack is provided by the installed Ultralytics package.
 TRACKING_ENABLED = True

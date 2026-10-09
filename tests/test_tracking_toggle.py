@@ -14,6 +14,7 @@ class FakeVideoCapture:
     """Single-frame video source used to avoid physical hardware in this test."""
 
     source_description = "Test source"
+    is_webcam = True
 
     def __init__(self, source: int) -> None:
         self.source = source
@@ -46,6 +47,7 @@ class TrackingToggleTests(unittest.TestCase):
     @patch.object(app, "print_video_info")
     @patch.object(app, "draw_tracked_objects")
     @patch.object(app, "draw_detections", return_value=np.zeros((20, 20, 3), dtype=np.uint8))
+    @patch.object(app, "get_display_size", return_value=(20, 20))
     @patch.object(app, "YOLODetector", FakeDetector)
     @patch.object(app, "VideoCapture", FakeVideoCapture)
     @patch.object(app, "TRACKING_ENABLED", False)
@@ -53,6 +55,7 @@ class TrackingToggleTests(unittest.TestCase):
     def test_tracking_disabled_uses_detection_visualization(
         self,
         mock_cv2: MagicMock,
+        mock_get_display_size: MagicMock,
         mock_draw_detections: MagicMock,
         mock_draw_tracked_objects: MagicMock,
         mock_print_video_info: MagicMock,
