@@ -545,20 +545,32 @@ class MainWindow(QMainWindow):
     def show_help_dialog(self) -> None:
         """Show shortcuts in an accessible native Qt dialog."""
         dialog = QDialog(self)
+        dialog.setObjectName("helpDialog")
         dialog.setWindowTitle("Keyboard shortcuts")
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(
-            QLabel(
-                "Space — Play, pause, or resume\n"
-                "T — Toggle tracking\n"
-                "+ / = — Increase confidence by 0.05\n"
-                "- — Decrease confidence by 0.05\n"
-                "H — Show this help\n"
-                "Q — Exit application\n"
-                "Esc — Stop current source\n"
-                "Frame slider — Pause and inspect a selected video frame"
-            )
+        dialog.setMinimumWidth(410)
+        dialog.setStyleSheet(
+            "QDialog#helpDialog { background: #202a31; }"
+            "QDialog#helpDialog QLabel#helpText { color: #e6eef2; "
+            "background: transparent; font-size: 14px; line-height: 1.5; }"
+            "QDialog#helpDialog QPushButton { background: #263841; "
+            "border: 1px solid #43626c; border-radius: 7px; padding: 8px 16px; "
+            "color: #eef9fb; font-weight: 600; }"
+            "QDialog#helpDialog QPushButton:hover { background: #31505a; "
+            "border-color: #55d6d2; }"
         )
+        layout = QVBoxLayout(dialog)
+        shortcut_text = QLabel(
+            "Space — Play, pause, or resume\n"
+            "T — Toggle tracking\n"
+            "+ / = — Increase confidence by 0.05\n"
+            "- — Decrease confidence by 0.05\n"
+            "H — Show this help\n"
+            "Q — Exit application\n"
+            "Esc — Stop current source\n\n"
+            "Frame slider — Pause and inspect a selected video frame"
+        )
+        shortcut_text.setObjectName("helpText")
+        layout.addWidget(shortcut_text)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
         buttons.accepted.connect(dialog.accept)
         layout.addWidget(buttons)

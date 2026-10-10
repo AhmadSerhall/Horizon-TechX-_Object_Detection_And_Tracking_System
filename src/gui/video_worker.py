@@ -233,18 +233,20 @@ class VideoProcessingWorker(QObject):
 
     @Slot(float)
     def set_confidence(self, confidence: float) -> None:
-        """Apply a later-frame confidence update without reloading YOLO."""
+        """Apply a confidence update without reloading YOLO."""
         self._confidence = confidence
         if self._detector is not None:
             self._detector.set_confidence_threshold(confidence)
-        self._reanalyze_paused_frame()
+        self._refresh_paused_frame(
+            f"Confidence {self._confidence:.2f} applied to the current frame."
+        )
 
-    def _reanalyze_paused_frame(self) -> None:
-        """Refresh the frozen frame so confidence changes immediately affect its objects."""
+    def _refresh_paused_frame(self, message: str) -> None:
+        """Redraw and recalculate a paused frame after a processing setting changes."""
         if not self._paused or self._last_source_frame is None or self._detector is None:
             return
         try:
-            # A fresh tracker prevents stale associations from the previous threshold.
+            # Recreate the tracker so altered paused-frame inputs do not reuse stale tracks.
             self._tracker = ObjectTracker() if self._tracking_enabled else None
             frame_index = max(0, self._frame_index - 1)
             self._analyze_frame(
@@ -252,28 +254,33 @@ class VideoProcessingWorker(QObject):
                 frame_index,
                 write_export=False,
             )
-            self.state_changed.emit(
-                "paused",
-                f"Confidence {self._confidence:.2f} applied to the current frame.",
-            )
+            self.state_changed.emit("paused", message)
         except (DetectionError, TrackerError, cv2.error) as error:
             self._handle_error(str(error))
 
     @Slot(bool)
     def set_tracking_enabled(self, enabled: bool) -> None:
-        """Toggle ByteTrack and reset IDs whenever tracking is enabled again."""
+        """Toggle ByteTrack, reset IDs, and refresh a paused preview immediately."""
         self._tracking_enabled = enabled
-        self._tracker = ObjectTracker() if enabled and self._video is not None else None
+        state = "enabled" if enabled else "disabled"
+        if self._paused and self._last_source_frame is not None:
+            self._refresh_paused_frame(f"Tracking {state} for the current frame.")
+        else:
+            self._tracker = ObjectTracker() if enabled and self._video is not None else None
 
     @Slot(bool)
     def set_show_boxes(self, enabled: bool) -> None:
-        """Change only the visual bounding-box layer."""
+        """Change the visual bounding-box layer and redraw a paused frame."""
         self._show_boxes = enabled
+        state = "shown" if enabled else "hidden"
+        self._refresh_paused_frame(f"Bounding boxes {state} for the current frame.")
 
     @Slot(bool)
     def set_show_labels(self, enabled: bool) -> None:
-        """Change only the visual label layer."""
+        """Change the visual label layer and redraw a paused frame."""
         self._show_labels = enabled
+        state = "shown" if enabled else "hidden"
+        self._refresh_paused_frame(f"Labels and IDs {state} for the current frame.")
 
     @Slot(bool)
     def set_save_session(self, enabled: bool) -> None:

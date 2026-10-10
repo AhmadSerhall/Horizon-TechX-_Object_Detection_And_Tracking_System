@@ -149,6 +149,40 @@ class WorkerControlTests(unittest.TestCase):
         detector.set_confidence_threshold.assert_called_once_with(0.35)
         worker._analyze_frame.assert_called_once_with(source_frame, 4, write_export=False)
 
+    def test_visual_settings_redraw_the_paused_frame(self) -> None:
+        worker = VideoProcessingWorker()
+        worker._detector = MagicMock()
+        worker._last_source_frame = object()
+        worker._paused = True
+        worker._tracking_enabled = False
+        worker._analyze_frame = MagicMock()
+
+        worker.set_show_boxes(False)
+        worker.set_show_labels(False)
+
+        self.assertFalse(worker._show_boxes)
+        self.assertFalse(worker._show_labels)
+        self.assertEqual(worker._analyze_frame.call_count, 2)
+        self.assertTrue(
+            all(call.kwargs["write_export"] is False for call in worker._analyze_frame.call_args_list)
+        )
+
+    @patch("src.gui.video_worker.ObjectTracker")
+    def test_tracking_toggle_redraws_the_paused_frame(self, mock_tracker: MagicMock) -> None:
+        worker = VideoProcessingWorker()
+        worker._detector = MagicMock()
+        worker._last_source_frame = object()
+        worker._paused = True
+        worker._frame_index = 3
+        worker._analyze_frame = MagicMock()
+
+        worker.set_tracking_enabled(True)
+
+        mock_tracker.assert_called_once()
+        worker._analyze_frame.assert_called_once_with(
+            worker._last_source_frame, 2, write_export=False
+        )
+
     @patch("src.gui.video_worker.ObjectTracker")
     def test_enabling_tracking_creates_a_fresh_tracker(self, mock_tracker: MagicMock) -> None:
         worker = VideoProcessingWorker()
