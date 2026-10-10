@@ -21,15 +21,15 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QProgressBar,
     QScrollArea,
     QSlider,
+    QSizePolicy,
     QStatusBar,
     QVBoxLayout,
     QWidget,
 )
 
-from config import CONFIDENCE_THRESHOLD, TRACKING_ENABLED
+from config import CONFIDENCE_STEP, CONFIDENCE_THRESHOLD, TRACKING_ENABLED
 from src.utils import FrameStatistics
 from src.video import VideoMetadata
 
@@ -43,6 +43,7 @@ class MainWindow(QMainWindow):
     request_pause = Signal()
     request_resume = Signal()
     request_stop = Signal()
+    request_seek = Signal(int)
     request_confidence = Signal(float)
     request_tracking = Signal(bool)
     request_show_boxes = Signal(bool)
@@ -55,6 +56,7 @@ class MainWindow(QMainWindow):
         self._source_name = "No source selected"
         self._source_metadata: VideoMetadata | None = None
         self._current_state = "ready"
+        self._ignore_worker_frames = False
         self._worker_thread: QThread | None = None
         self._worker = VideoProcessingWorker()
 
@@ -140,16 +142,24 @@ class MainWindow(QMainWindow):
         ):
             value = QLabel("—")
             value.setObjectName("statValue")
-            value.setWordWrap(key == "source")
+            value.setWordWrap(False)
             self.stats_labels[key] = value
             form.addRow(QLabel(text), value)
         layout.addLayout(form)
+        classes_header = QHBoxLayout()
         classes_title = QLabel("CURRENT OBJECTS")
         classes_title.setObjectName("sectionTitle")
-        layout.addWidget(classes_title)
+        self.class_total_label = QLabel("Total: 0")
+        self.class_total_label.setObjectName("classTotal")
+        classes_header.addWidget(classes_title)
+        classes_header.addStretch()
+        classes_header.addWidget(self.class_total_label)
+        layout.addLayout(classes_header)
         self.class_counts_layout = QVBoxLayout()
-        self.class_counts_layout.setSpacing(6)
+        self.class_counts_layout.setContentsMargins(0, 0, 0, 0)
+        self.class_counts_layout.setSpacing(2)
         class_container = QWidget()
+        class_container.setObjectName("classContainer")
         class_container.setLayout(self.class_counts_layout)
         scroll = QScrollArea()
         scroll.setObjectName("classScroll")
@@ -184,17 +194,17 @@ class MainWindow(QMainWindow):
         playback_group = QGroupBox("PLAYBACK")
         playback_layout = QVBoxLayout(playback_group)
         playback_buttons = QHBoxLayout()
-        self.play_button = QPushButton("Play")
-        self.pause_button = QPushButton("Pause")
-        self.resume_button = QPushButton("Resume")
+        self.play_pause_button = QPushButton("Play")
         self.stop_button = QPushButton("Stop")
-        for button in (self.play_button, self.pause_button, self.resume_button, self.stop_button):
+        for button in (self.play_pause_button, self.stop_button):
             playback_buttons.addWidget(button)
         playback_layout.addLayout(playback_buttons)
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 100)
+        self.position_slider = QSlider(Qt.Orientation.Horizontal)
+        self.position_slider.setRange(0, 0)
+        self.position_slider.setEnabled(False)
+        self.position_slider.setToolTip("Pause and drag to inspect a specific video frame.")
         self.position_label = QLabel("00:00 / —")
-        playback_layout.addWidget(self.progress_bar)
+        playback_layout.addWidget(self.position_slider)
         playback_layout.addWidget(self.position_label)
 
         settings_group = QGroupBox("DETECTION & TRACKING")
@@ -239,10 +249,11 @@ class MainWindow(QMainWindow):
 
         self.open_video_button.clicked.connect(self.open_video_dialog)
         self.webcam_button.clicked.connect(lambda: self.start_source(0))
-        self.play_button.clicked.connect(self.play_current_source)
-        self.pause_button.clicked.connect(self.request_pause.emit)
-        self.resume_button.clicked.connect(self.request_resume.emit)
-        self.stop_button.clicked.connect(self.request_stop.emit)
+        self.play_pause_button.clicked.connect(self._toggle_pause)
+        self.stop_button.clicked.connect(self.stop_current_source)
+        self.position_slider.sliderPressed.connect(self._begin_seek)
+        self.position_slider.sliderMoved.connect(self._preview_seek_position)
+        self.position_slider.sliderReleased.connect(self._seek_to_selected_frame)
         self.confidence_slider.valueChanged.connect(self._change_confidence)
         self.tracking_checkbox.toggled.connect(self.request_tracking.emit)
         self.boxes_checkbox.toggled.connect(self.request_show_boxes.emit)
@@ -260,6 +271,7 @@ class MainWindow(QMainWindow):
         self.request_pause.connect(self._worker.pause)
         self.request_resume.connect(self._worker.resume)
         self.request_stop.connect(self._worker.stop)
+        self.request_seek.connect(self._worker.seek_to_frame)
         self.request_confidence.connect(self._worker.set_confidence)
         self.request_tracking.connect(self._worker.set_tracking_enabled)
         self.request_show_boxes.connect(self._worker.set_show_boxes)
@@ -306,10 +318,17 @@ class MainWindow(QMainWindow):
             self.start_source(self._source_name)
 
     def _change_confidence(self, value: int) -> None:
-        """Show and send a valid threshold for subsequent inference frames."""
+        """Show and send a valid threshold for future or paused-frame inference."""
         confidence = value / 100
         self.confidence_value_label.setText(f"{confidence:.2f}")
         self.request_confidence.emit(confidence)
+
+    def _adjust_confidence(self, adjustment: float) -> None:
+        """Move the confidence slider by one configured keyboard shortcut step."""
+        new_value = round(self.confidence_slider.value() + adjustment * 100)
+        new_value = max(self.confidence_slider.minimum(), new_value)
+        new_value = min(self.confidence_slider.maximum(), new_value)
+        self.confidence_slider.setValue(new_value)
 
     def _toggle_export(self, enabled: bool) -> None:
         """Label the recording mode accurately as a current-session export."""
@@ -320,11 +339,21 @@ class MainWindow(QMainWindow):
 
     def _source_opened(self, source_name: str, metadata: VideoMetadata) -> None:
         """Update source labels and reset visible playback progress."""
+        self._ignore_worker_frames = False
         self._source_name = source_name
         self._source_metadata = metadata
         self.source_label.setText(source_name)
-        self.stats_labels["source"].setText(source_name)
-        self.progress_bar.setValue(0)
+        self.source_label.setToolTip(source_name)
+        source_summary = _source_summary(source_name)
+        self.stats_labels["source"].setText(source_summary)
+        self.stats_labels["source"].setToolTip(source_name)
+        if metadata.frame_count is not None:
+            self.position_slider.setRange(0, max(0, metadata.frame_count - 1))
+            self.position_slider.setValue(0)
+            self.position_slider.setEnabled(True)
+        else:
+            self.position_slider.setRange(0, 0)
+            self.position_slider.setEnabled(False)
         duration = metadata.duration_seconds
         self.position_label.setText(f"00:00 / {_format_duration(duration)}")
 
@@ -332,13 +361,17 @@ class MainWindow(QMainWindow):
         self, image, statistics: FrameStatistics, frame_index: int, total_frames: int
     ) -> None:
         """Receive an owned QImage from the worker and update GUI widgets only here."""
+        if self._ignore_worker_frames:
+            return
         self._latest_pixmap = QPixmap.fromImage(image)
         self._update_preview()
         self._update_statistics(statistics)
         if total_frames > 0:
-            self.progress_bar.setValue(round(frame_index / total_frames * 100))
+            self.position_slider.blockSignals(True)
+            self.position_slider.setValue(frame_index)
+            self.position_slider.blockSignals(False)
         elapsed = (
-            frame_index / self._source_metadata.fps
+            (frame_index + 1) / self._source_metadata.fps
             if self._source_metadata is not None and self._source_metadata.fps > 0
             else None
         )
@@ -366,18 +399,24 @@ class MainWindow(QMainWindow):
         )
         self.stats_labels["objects"].setText(str(statistics.object_count))
         self.stats_labels["confidence"].setText(f"{statistics.confidence_threshold:.2f}")
+        self.class_total_label.setText(f"Total: {statistics.object_count}")
         while self.class_counts_layout.count():
             item = self.class_counts_layout.takeAt(0)
             if item.widget() is not None:
                 item.widget().deleteLater()
         if not statistics.class_counts:
-            self.class_counts_layout.addWidget(QLabel("No objects in this frame"))
+            empty_label = QLabel("No objects in this frame")
+            empty_label.setObjectName("emptyObjects")
+            self.class_counts_layout.addWidget(empty_label)
+            self.class_counts_layout.addStretch()
             return
         for class_name, count in sorted(
             statistics.class_counts.items(), key=lambda item: (-item[1], item[0])
         )[:8]:
             row = QLabel(f"{class_name.title()}  × {count}")
             row.setObjectName("classCount")
+            row.setFixedHeight(24)
+            row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
             self.class_counts_layout.addWidget(row)
         self.class_counts_layout.addStretch()
 
@@ -390,6 +429,18 @@ class MainWindow(QMainWindow):
         self.state_label.style().polish(self.state_label)
         self.status_summary_label.setText(message)
         self.statusBar().showMessage(message)
+        if state == "processing":
+            self.play_pause_button.setEnabled(True)
+            self.play_pause_button.setText("Pause")
+        elif state == "paused":
+            self.play_pause_button.setEnabled(True)
+            self.play_pause_button.setText("Resume")
+        elif state == "loading":
+            self.play_pause_button.setEnabled(False)
+            self.play_pause_button.setText("Loading…")
+        else:
+            self.play_pause_button.setEnabled(True)
+            self.play_pause_button.setText("Play")
 
     def _export_started(self, output_path: str) -> None:
         """Report the exact partial-session output path without claiming full export."""
@@ -419,9 +470,12 @@ class MainWindow(QMainWindow):
         """Keep useful controls accessible without conflicting with text entry widgets."""
         self._shortcut("Space", self._toggle_pause)
         self._shortcut("T", lambda: self.tracking_checkbox.toggle())
+        self._shortcut("+", lambda: self._adjust_confidence(CONFIDENCE_STEP))
+        self._shortcut("=", lambda: self._adjust_confidence(CONFIDENCE_STEP))
+        self._shortcut("-", lambda: self._adjust_confidence(-CONFIDENCE_STEP))
         self._shortcut("H", self.show_help_dialog)
         self._shortcut("Q", self.close)
-        self._shortcut("Escape", self.request_stop.emit)
+        self._shortcut("Escape", self.stop_current_source)
 
     def _shortcut(self, sequence: str, callback) -> None:
         """Register one window-level keyboard shortcut."""
@@ -430,11 +484,63 @@ class MainWindow(QMainWindow):
         shortcut.activated.connect(callback)
 
     def _toggle_pause(self) -> None:
-        """Use Space to pause or resume according to the worker's visible state."""
+        """Use one primary button for play, pause, and resume without extra controls."""
         if self._current_state == "paused":
             self.request_resume.emit()
         elif self._current_state == "processing":
             self.request_pause.emit()
+        else:
+            self.play_current_source()
+
+    def stop_current_source(self) -> None:
+        """Stop processing and restore the neutral first-launch interface state."""
+        self._ignore_worker_frames = True
+        self.request_stop.emit()
+        self._set_state("ready", "Ready. Select a video or webcam.")
+        self._reset_to_initial_state()
+
+    def _reset_to_initial_state(self) -> None:
+        """Clear source-specific preview, statistics, and playback UI state."""
+        self._latest_pixmap = None
+        self._source_name = "No source selected"
+        self._source_metadata = None
+        self.video_label.clear()
+        self.video_label.setText("Select a video file or use the webcam to begin.")
+        self.source_label.setText(self._source_name)
+        self.source_label.setToolTip("")
+        for label in self.stats_labels.values():
+            label.setText("—")
+            label.setToolTip("")
+        self.class_total_label.setText("Total: 0")
+        while self.class_counts_layout.count():
+            item = self.class_counts_layout.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        self.position_slider.blockSignals(True)
+        self.position_slider.setRange(0, 0)
+        self.position_slider.setValue(0)
+        self.position_slider.setEnabled(False)
+        self.position_slider.blockSignals(False)
+        self.position_label.setText("00:00 / —")
+
+    def _begin_seek(self) -> None:
+        """Pause file playback before moving to a different frame."""
+        if self.position_slider.isEnabled() and self._current_state == "processing":
+            self.request_pause.emit()
+
+    def _preview_seek_position(self, frame_index: int) -> None:
+        """Show the requested file position while the user drags the frame slider."""
+        if self._source_metadata is None or self._source_metadata.fps <= 0:
+            return
+        self.position_label.setText(
+            f"{_format_duration((frame_index + 1) / self._source_metadata.fps)} / "
+            f"{_format_duration(self._source_metadata.duration_seconds)}"
+        )
+
+    def _seek_to_selected_frame(self) -> None:
+        """Analyze one selected video frame; ByteTrack resets to keep seek state honest."""
+        if self.position_slider.isEnabled():
+            self.request_seek.emit(self.position_slider.value())
 
     def show_help_dialog(self) -> None:
         """Show shortcuts in an accessible native Qt dialog."""
@@ -443,11 +549,14 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(dialog)
         layout.addWidget(
             QLabel(
-                "Space — Pause/resume\n"
+                "Space — Play, pause, or resume\n"
                 "T — Toggle tracking\n"
+                "+ / = — Increase confidence by 0.05\n"
+                "- — Decrease confidence by 0.05\n"
                 "H — Show this help\n"
                 "Q — Exit application\n"
-                "Esc — Stop current source"
+                "Esc — Stop current source\n"
+                "Frame slider — Pause and inspect a selected video frame"
             )
         )
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
@@ -485,6 +594,13 @@ def _format_duration(seconds: float | None) -> str:
     return f"{whole_seconds // 60:02}:{whole_seconds % 60:02}"
 
 
+def _source_summary(source_name: str) -> str:
+    """Keep the narrow live-statistics source row readable without losing its tooltip."""
+    if source_name.startswith("Webcam"):
+        return source_name
+    return Path(source_name).name or source_name
+
+
 _APPLICATION_STYLESHEET = """
 QWidget { color: #e6eef2; font-family: Segoe UI, Arial; font-size: 13px; }
 QMainWindow, QWidget#centralWidget { background: #151b20; }
@@ -497,7 +613,9 @@ QLabel#stateLabel[state="error"] { color: #ff8f7d; }
 QLabel#stateLabel[state="paused"] { color: #ffc96b; }
 QLabel#sectionTitle { color: #55d6d2; font-weight: 700; letter-spacing: 1px; }
 QLabel#statValue { color: #f4fbfd; font-weight: 600; }
-QLabel#classCount { background: #182229; border-radius: 6px; padding: 6px 8px; color: #d8e8ed; }
+QLabel#classTotal { color: #9fb2bc; font-size: 12px; font-weight: 600; }
+QLabel#classCount { background: #182229; border-radius: 5px; padding: 2px 7px; color: #d8e8ed; }
+QLabel#emptyObjects { color: #9fb2bc; }
 QLabel#videoPreview { background: #080b0d; border: 1px solid #334650; border-radius: 12px; color: #82949d; }
 QGroupBox { background: #1a242a; border: 1px solid #3a4c55; border-radius: 9px; margin-top: 10px; padding: 12px 10px 8px 10px; color: #55d6d2; font-weight: 700; }
 QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
@@ -511,6 +629,6 @@ QSlider::groove:horizontal { height: 5px; background: #344850; border-radius: 2p
 QSlider::handle:horizontal { background: #55d6d2; width: 16px; margin: -6px 0; border-radius: 8px; }
 QProgressBar { border: 1px solid #405861; border-radius: 5px; text-align: center; background: #152027; }
 QProgressBar::chunk { background: #2a9da0; border-radius: 4px; }
-QScrollArea#classScroll, QScrollArea#classScroll QWidget { background: transparent; }
+QScrollArea#classScroll, QScrollArea#classScroll QWidget, QWidget#classContainer { background: transparent; }
 QStatusBar { background: #12181d; color: #9fb2bc; }
 """

@@ -60,6 +60,7 @@ class VideoProcessingWorker(QObject):
         self._playback_timing: PlaybackTiming | None = None
         self._writer: ProcessedVideoWriter | None = None
         self._frame_index = 0
+        self._last_source_frame: np.ndarray | None = None
         self._paused = False
         self._tracking_enabled = TRACKING_ENABLED
         self._confidence = CONFIDENCE_THRESHOLD
@@ -93,7 +94,15 @@ class VideoProcessingWorker(QObject):
     @Slot()
     def process_next_frame(self) -> None:
         """Read and process exactly one frame, then schedule the next timer tick."""
-        if self._paused or self._video is None or not self._video.is_opened:
+        self._process_one_frame(schedule_after=True)
+
+    def _process_one_frame(self, schedule_after: bool, allow_paused: bool = False) -> None:
+        """Process one source frame, optionally retaining paused state after review."""
+        if (
+            (self._paused and not allow_paused)
+            or self._video is None
+            or not self._video.is_opened
+        ):
             return
         try:
             success, frame = self._video.read()
@@ -101,48 +110,60 @@ class VideoProcessingWorker(QObject):
                 self._finish_source("Video completed.")
                 return
 
-            processing_start = perf_counter()
-            detections = self._detector.detect(frame) if self._detector is not None else []
-            if self._tracker is not None:
-                displayed_objects = self._tracker.update(frame, detections)
-                annotated_frame = draw_tracked_objects(
-                    frame,
-                    displayed_objects,
-                    show_boxes=self._show_boxes,
-                    show_labels=self._show_labels,
-                )
-            else:
-                displayed_objects = detections
-                annotated_frame = draw_detections(
-                    frame,
-                    displayed_objects,
-                    show_boxes=self._show_boxes,
-                    show_labels=self._show_labels,
-                )
-
-            processing_seconds = perf_counter() - processing_start
-            statistics = calculate_frame_statistics(
-                displayed_objects,
-                processing_fps=1 / max(processing_seconds, 1e-9),
-                tracking_enabled=self._tracker is not None,
-                confidence_threshold=self._detector.confidence_threshold,
+            current_frame_index = self._frame_index
+            self._last_source_frame = frame.copy()
+            processing_seconds = self._analyze_frame(
+                frame, current_frame_index, write_export=True
             )
-            self._write_export_frame(annotated_frame, statistics)
             self._frame_index += 1
-            self.frame_ready.emit(
-                self._to_qimage(annotated_frame),
-                statistics,
-                self._frame_index,
-                self._metadata.frame_count if self._metadata and self._metadata.frame_count else 0,
-            )
             delay = (
                 self._playback_timing.wait_delay_ms(processing_seconds)
                 if self._playback_timing is not None
                 else 1
             )
-            self._schedule_next_frame(delay)
-        except (DetectionError, TrackerError, VideoWriterError, cv2.error) as error:
+            if schedule_after:
+                self._schedule_next_frame(delay)
+        except (DetectionError, TrackerError, VideoWriterError, VideoSourceError, cv2.error) as error:
             self._handle_error(str(error))
+
+    def _analyze_frame(
+        self, frame: np.ndarray, frame_index: int, write_export: bool
+    ) -> float:
+        """Run one YOLO/tracking pass and publish an annotated result to the GUI."""
+        processing_start = perf_counter()
+        detections = self._detector.detect(frame) if self._detector is not None else []
+        if self._tracker is not None:
+            displayed_objects = self._tracker.update(frame, detections)
+            annotated_frame = draw_tracked_objects(
+                frame,
+                displayed_objects,
+                show_boxes=self._show_boxes,
+                show_labels=self._show_labels,
+            )
+        else:
+            displayed_objects = detections
+            annotated_frame = draw_detections(
+                frame,
+                displayed_objects,
+                show_boxes=self._show_boxes,
+                show_labels=self._show_labels,
+            )
+        processing_seconds = perf_counter() - processing_start
+        statistics = calculate_frame_statistics(
+            displayed_objects,
+            processing_fps=1 / max(processing_seconds, 1e-9),
+            tracking_enabled=self._tracker is not None,
+            confidence_threshold=self._detector.confidence_threshold,
+        )
+        if write_export:
+            self._write_export_frame(annotated_frame, statistics)
+        self.frame_ready.emit(
+            self._to_qimage(annotated_frame),
+            statistics,
+            frame_index,
+            self._metadata.frame_count if self._metadata and self._metadata.frame_count else 0,
+        )
+        return processing_seconds
 
     @Slot()
     def pause(self) -> None:
@@ -160,6 +181,31 @@ class VideoProcessingWorker(QObject):
             self.state_changed.emit("processing", "Processing video…")
             self._schedule_next_frame(1)
 
+    @Slot(int)
+    def seek_to_frame(self, frame_index: int) -> None:
+        """Pause a video file, reset tracking, and analyze the selected frame once."""
+        if (
+            self._video is None
+            or self._metadata is None
+            or self._video.is_webcam
+            or self._metadata.frame_count is None
+        ):
+            return
+        bounded_index = max(0, min(frame_index, self._metadata.frame_count - 1))
+        self._timer.stop()
+        if self._save_session:
+            self.set_save_session(False)
+        try:
+            self._video.seek(bounded_index)
+            self._frame_index = bounded_index
+            self._paused = True
+            self._tracker = ObjectTracker() if self._tracking_enabled else None
+            self._process_one_frame(schedule_after=False, allow_paused=True)
+            if self._video is not None:
+                self.state_changed.emit("paused", f"Frame {bounded_index + 1} selected.")
+        except (VideoSourceError, TrackerError) as error:
+            self._handle_error(str(error))
+
     @Slot()
     def stop(self) -> None:
         """Release capture and export resources without terminating the worker thread."""
@@ -176,6 +222,7 @@ class VideoProcessingWorker(QObject):
         self._playback_timing = None
         self._tracker = None
         self._frame_index = 0
+        self._last_source_frame = None
         self.state_changed.emit("ready", "Ready. Select a video or webcam.")
 
     @Slot()
@@ -190,6 +237,27 @@ class VideoProcessingWorker(QObject):
         self._confidence = confidence
         if self._detector is not None:
             self._detector.set_confidence_threshold(confidence)
+        self._reanalyze_paused_frame()
+
+    def _reanalyze_paused_frame(self) -> None:
+        """Refresh the frozen frame so confidence changes immediately affect its objects."""
+        if not self._paused or self._last_source_frame is None or self._detector is None:
+            return
+        try:
+            # A fresh tracker prevents stale associations from the previous threshold.
+            self._tracker = ObjectTracker() if self._tracking_enabled else None
+            frame_index = max(0, self._frame_index - 1)
+            self._analyze_frame(
+                self._last_source_frame,
+                frame_index,
+                write_export=False,
+            )
+            self.state_changed.emit(
+                "paused",
+                f"Confidence {self._confidence:.2f} applied to the current frame.",
+            )
+        except (DetectionError, TrackerError, cv2.error) as error:
+            self._handle_error(str(error))
 
     @Slot(bool)
     def set_tracking_enabled(self, enabled: bool) -> None:
@@ -252,6 +320,7 @@ class VideoProcessingWorker(QObject):
         self._video = None
         self._tracker = None
         self._paused = False
+        self._last_source_frame = None
         self.state_changed.emit("completed", message)
 
     def _release_writer(self) -> str | None:
@@ -272,6 +341,7 @@ class VideoProcessingWorker(QObject):
             self._video = None
         self._tracker = None
         self._paused = False
+        self._last_source_frame = None
         self.state_changed.emit("error", "Processing stopped due to an error.")
         self.error_occurred.emit(message)
 

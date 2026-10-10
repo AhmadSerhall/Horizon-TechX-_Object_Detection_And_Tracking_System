@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import unittest
+from unittest.mock import MagicMock
 
 from src.video import VideoCapture, VideoMetadata, VideoSourceError
 
@@ -37,6 +38,21 @@ class VideoCaptureTests(unittest.TestCase):
         metadata = VideoMetadata(width=640, height=480, fps=30.0, frame_count=None)
 
         self.assertIsNone(metadata.duration_seconds)
+
+    def test_video_file_seek_uses_zero_based_frame_position(self) -> None:
+        video = VideoCapture(Path("input/example.mp4"))
+        capture = MagicMock()
+        capture.isOpened.return_value = True
+        capture.set.return_value = True
+        video._capture = capture
+
+        video.seek(12)
+
+        capture.set.assert_called_once_with(1, 12)
+
+    def test_webcam_seek_is_rejected(self) -> None:
+        with self.assertRaisesRegex(VideoSourceError, "video files"):
+            VideoCapture(0).seek(0)
 
 
 if __name__ == "__main__":

@@ -101,6 +101,17 @@ class VideoCapture:
             frame_count=frame_count if frame_count > 0 else None,
         )
 
+    def seek(self, frame_index: int) -> None:
+        """Move an opened video file to a zero-based frame index for paused review."""
+        if self.is_webcam:
+            raise VideoSourceError("Frame seeking is available only for video files.")
+        if not self.is_opened or self._capture is None:
+            raise VideoSourceError("Video source is not open. Call open() first.")
+        if frame_index < 0:
+            raise VideoSourceError("Frame index cannot be negative.")
+        if not self._capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index):
+            raise VideoSourceError(f"Could not seek to frame {frame_index}.")
+
     def release(self) -> None:
         """Release the underlying OpenCV capture resource."""
         if self._capture is not None:
