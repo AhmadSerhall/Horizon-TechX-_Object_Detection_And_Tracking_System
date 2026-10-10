@@ -38,6 +38,12 @@ class DesktopGuiTests(unittest.TestCase):
         self.assertTrue(self.window.tracking_checkbox.isChecked())
         self.assertEqual(self.window.confidence_slider.value(), 50)
 
+    def test_ordinary_labels_use_transparent_backgrounds(self) -> None:
+        stylesheet = self.window.styleSheet()
+
+        self.assertIn("QLabel { background: transparent; }", stylesheet)
+        self.assertNotIn("\nQWidget { background:", stylesheet)
+
     @patch.object(QFileDialog, "getOpenFileName", return_value=("", ""))
     def test_cancelled_file_selection_leaves_source_unchanged(self, _: MagicMock) -> None:
         original_source = self.window.source_label.text()

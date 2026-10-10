@@ -486,7 +486,9 @@ def _format_duration(seconds: float | None) -> str:
 
 
 _APPLICATION_STYLESHEET = """
-QWidget { background: #151b20; color: #e6eef2; font-family: Segoe UI, Arial; font-size: 13px; }
+QWidget { color: #e6eef2; font-family: Segoe UI, Arial; font-size: 13px; }
+QMainWindow, QWidget#centralWidget { background: #151b20; }
+QLabel { background: transparent; }
 QFrame#header, QFrame#statisticsSidebar, QFrame#controlArea { background: #202a31; border: 1px solid #334650; border-radius: 12px; }
 QLabel#titleLabel { font-size: 25px; font-weight: 700; color: #f4fbfd; }
 QLabel#subtitleLabel, QLabel#statusSummary, QLabel#sourceLabel, QLabel#exportHint { color: #9fb2bc; }
@@ -497,7 +499,7 @@ QLabel#sectionTitle { color: #55d6d2; font-weight: 700; letter-spacing: 1px; }
 QLabel#statValue { color: #f4fbfd; font-weight: 600; }
 QLabel#classCount { background: #182229; border-radius: 6px; padding: 6px 8px; color: #d8e8ed; }
 QLabel#videoPreview { background: #080b0d; border: 1px solid #334650; border-radius: 12px; color: #82949d; }
-QGroupBox { border: 1px solid #3a4c55; border-radius: 9px; margin-top: 10px; padding: 12px 10px 8px 10px; color: #55d6d2; font-weight: 700; }
+QGroupBox { background: #1a242a; border: 1px solid #3a4c55; border-radius: 9px; margin-top: 10px; padding: 12px 10px 8px 10px; color: #55d6d2; font-weight: 700; }
 QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
 QPushButton { background: #263841; border: 1px solid #43626c; border-radius: 7px; padding: 8px 11px; color: #eef9fb; font-weight: 600; }
 QPushButton:hover { background: #31505a; border-color: #55d6d2; }
@@ -509,6 +511,6 @@ QSlider::groove:horizontal { height: 5px; background: #344850; border-radius: 2p
 QSlider::handle:horizontal { background: #55d6d2; width: 16px; margin: -6px 0; border-radius: 8px; }
 QProgressBar { border: 1px solid #405861; border-radius: 5px; text-align: center; background: #152027; }
 QProgressBar::chunk { background: #2a9da0; border-radius: 4px; }
-QScrollArea#classScroll { background: transparent; }
+QScrollArea#classScroll, QScrollArea#classScroll QWidget { background: transparent; }
 QStatusBar { background: #12181d; color: #9fb2bc; }
 """
